@@ -141,7 +141,8 @@ def cpu_model() -> str:
 def filesystem(path: str) -> str:
     try:
         if IS_MAC:
-            info = subprocess.check_output(["diskutil", "info", path], text=True)
+            device = subprocess.check_output(["df", "-P", path], text=True).splitlines()[-1].split()[0]
+            info = subprocess.check_output(["diskutil", "info", device], text=True)
             for line in info.splitlines():
                 if "File System Personality" in line:
                     return line.split(":", 1)[1].strip()
