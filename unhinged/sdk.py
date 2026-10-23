@@ -299,11 +299,12 @@ class Unhinged:
         queue_name: str = "default",
         default_max_attempts: int = 5,
         busy_timeout: float = 5.0,
+        synchronous: str = "full",
     ) -> None:
         self.path = path or os.environ.get("UNHINGED_DATABASE", "unhinged.db")
         self._queue = validate_queue_name(queue_name)
         self._default_max_attempts = default_max_attempts
-        self._pool = EnginePool(self.path, busy_timeout=busy_timeout)
+        self._pool = EnginePool(self.path, busy_timeout=busy_timeout, synchronous=synchronous)
         self._registry: Dict[str, dict] = {}
         self._running = False
         self.engine.create_queue(self._queue)

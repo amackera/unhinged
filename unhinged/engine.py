@@ -231,7 +231,18 @@ class Engine:
         *,
         busy_timeout: float = 5.0,
         clock: Optional[Callable[[], datetime]] = None,
+        synchronous: str = "full",
     ) -> None:
+        """Open (and if needed initialise) the database at ``path``.
+
+        ``synchronous`` is passed to SQLite. The default ``"full"`` fsyncs on
+        every commit, matching Postgres' durability: a checkpoint that was
+        acknowledged survives a power cut. ``"normal"`` is roughly twice as
+        fast and still survives process crashes, but an OS crash or power loss
+        can drop the last few commits, so a step may run again after reboot.
+        """
+        if synchronous.lower() not in ("off", "normal", "full", "extra"):
+            raise ValueError(f"unsupported synchronous mode {synchronous!r}")
         self.path = path
         self._clock = clock
         self._fake_now: Optional[datetime] = None
@@ -245,7 +256,7 @@ class Engine:
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("pragma journal_mode = wal")
-        self._conn.execute("pragma synchronous = normal")
+        self._conn.execute(f"pragma synchronous = {synchronous.lower()}")
         self._conn.execute("pragma foreign_keys = on")
         self._conn.execute(f"pragma busy_timeout = {int(busy_timeout * 1000)}")
         self._conn.executescript(schema.QUEUES_DDL)

@@ -61,7 +61,7 @@ Multiple worker processes share one database file through WAL mode and
 uv venv && uv pip install -e '.[dev]'
 pytest                                   # 44 tests, ~3s
 python examples/crash_demo.py            # kill -9 a worker mid-task, watch it resume
-python examples/bench.py --tasks 2000 --workers 4
+python examples/bench.py --tasks 2000 --workers 4   # add --synchronous normal to compare
 ```
 
 Quickstart (two terminals):
@@ -83,8 +83,10 @@ python -m unhinged --db quickstart.db stats
   `start_worker`, call `app.cleanup()` from a cron job, or run
   `python -m unhinged cleanup`. Retention per queue is set with
   `set_queue_policy` (default 30 days, 1000 rows per sweep).
-* The connection uses `synchronous=NORMAL` in WAL mode: safe against process
-  crashes, but a power loss can lose the last few transactions. Set
-  `pragma synchronous=full` on `engine.connection` if that matters.
+* Commits fsync by default (`synchronous=FULL`, same guarantee as Postgres):
+  an acknowledged checkpoint survives a power cut, so a "charge the card" step
+  never silently runs twice after reboot. `Unhinged(..., synchronous="normal")`
+  is about 40% faster and still survives `kill -9`, but an OS crash or power
+  loss can drop the last few commits.
 * Only the synchronous SDK was ported. The async client, hooks, and `absurdctl`
   partition commands were not.
