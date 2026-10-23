@@ -57,6 +57,9 @@ Multiple worker processes share one database file through WAL mode and
 
 ## Run it
 
+Needs Python 3.10+ linked against SQLite 3.33 or newer (2020; every current
+Python build qualifies).
+
 ```bash
 uv venv && uv pip install -e '.[dev]'
 pytest                                   # 44 tests, ~3s
@@ -90,3 +93,7 @@ python -m unhinged --db quickstart.db stats
   loss can drop the last few commits.
 * Only the synchronous SDK was ported. The async client, hooks, and `absurdctl`
   partition commands were not.
+
+## License
+
+Apache-2.0, like Absurd. See `NOTICE` for attribution.

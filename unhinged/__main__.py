@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from .engine import Engine, UnhingedError
+from .schema import table
 from .sdk import Unhinged
 
 
@@ -108,7 +109,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise UnhingedError(f"task {args.task_id} not found")
             runs = eng.get_runs(q, args.task_id)
             cps = eng.connection.execute(
-                f'select checkpoint_name, state, owner_run_id, updated_at from "c_{q}" where task_id = ? order by updated_at',
+                f"select checkpoint_name, state, owner_run_id, updated_at from {table('c', q)} "
+                "where task_id = ? order by updated_at",
                 (args.task_id,),
             ).fetchall()
             _print({"task": task, "runs": runs, "checkpoints": [dict(c) for c in cps]})

@@ -35,6 +35,7 @@ from .schema import table
 JsonValue = Any
 
 MAX_QUEUE_NAME_BYTES = 57
+MIN_SQLITE_VERSION = (3, 33, 0)  # UPDATE ... FROM (3.33); upsert needs 3.24
 RETRY_DELAY_LIMIT = 86400.0
 INFINITY = "9999-12-31T23:59:59.999999"
 EPOCH = "1970-01-01T00:00:00.000000"
@@ -243,6 +244,11 @@ class Engine:
         """
         if synchronous.lower() not in ("off", "normal", "full", "extra"):
             raise ValueError(f"unsupported synchronous mode {synchronous!r}")
+        if sqlite3.sqlite_version_info < MIN_SQLITE_VERSION:
+            raise UnhingedError(
+                f"unhinged needs SQLite {'.'.join(map(str, MIN_SQLITE_VERSION))} or newer "
+                f"(UPDATE ... FROM, upsert); this Python links {sqlite3.sqlite_version}"
+            )
         self.path = path
         self._clock = clock
         self._fake_now: Optional[datetime] = None

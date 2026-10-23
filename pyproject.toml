@@ -3,6 +3,8 @@ name = "unhinged"
 version = "0.1.0"
 description = "Absurd's durable-execution schema and state machine, ported from Postgres to SQLite."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.10"
 dependencies = []
 
