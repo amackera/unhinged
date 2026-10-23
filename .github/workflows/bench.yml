@@ -14,9 +14,12 @@ jobs:
       - run: uv venv --python 3.14
       - run: uv pip install -e .
       - run: |
-          echo "runner: $(nproc) cpus, $(df -T . | tail -1)"
-          cat /proc/cpuinfo | grep "model name" | head -1
-          uv run --no-sync python examples/bench.py --json bench.json | tee bench.txt
+          # /tmp on these runners is tmpfs, which would make fsync free.
+          # The workspace is on the runner's real (cloud) disk.
+          mkdir -p benchdir
+          echo "runner: $(nproc) cpus; $(df -T benchdir | tail -1)"
+          grep "model name" /proc/cpuinfo | head -1
+          uv run --no-sync python examples/bench.py --dir benchdir --json bench.json | tee bench.txt
       - uses: actions/upload-artifact@v4
         with:
           name: bench

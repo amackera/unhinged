@@ -101,7 +101,12 @@ def db_bytes(path: str) -> int:
     return sum(os.path.getsize(path + s) for s in ("", "-wal", "-shm") if os.path.exists(path + s))
 
 
+FS_IN_MEMORY = False
+
+
 def durability_class(sync: str, ff: bool) -> str:
+    if FS_IN_MEMORY:
+        return "none (tmpfs)"
     if sync == "normal":
         return "crash-safe"
     if IS_MAC and not ff:
@@ -135,10 +140,28 @@ def cpu_model() -> str:
 
 def filesystem(path: str) -> str:
     try:
-        out = subprocess.check_output(["df", "-T" if not IS_MAC else "-h", path], text=True).splitlines()[-1]
-        return out.split()[1] if not IS_MAC else "APFS (assumed)"
+        if IS_MAC:
+            info = subprocess.check_output(["diskutil", "info", path], text=True)
+            for line in info.splitlines():
+                if "File System Personality" in line:
+                    return line.split(":", 1)[1].strip()
+            return "unknown"
+        out = subprocess.check_output(["df", "-T", path], text=True).splitlines()[-1]
+        return out.split()[1]
     except Exception:
         return "unknown"
+
+
+IN_MEMORY_FS = ("tmpfs", "ramfs", "devtmpfs")
+
+
+def check_filesystem(fs: str) -> None:
+    if fs.lower() in IN_MEMORY_FS:
+        print(
+            f"\n!! {fs} is an in-memory filesystem: fsync is free and nothing here survives a reboot.\n"
+            "!! Every durability label below is void. Pass --dir with a path on a real disk.\n",
+            file=sys.stderr,
+        )
 
 
 # ---------------------------------------------------------------- 1. calibration
@@ -324,11 +347,14 @@ def recovery(tmp: str, script: str, tasks: int, claim_timeout: int) -> dict:
     rescuer.wait()
     finish_t = time.time()
     first_resume = eng.connection.execute("select min(t) from effects where t > ?", (kill_t,)).fetchone()[0]
-    victim_resume = None
+    victim_resume = victim_reclaimed = None
     if victim_run is not None:
         victim_resume = eng.connection.execute(
             "select min(t) from effects where task_id = ? and run_id != ?", (victim_run["task_id"], victim_run["run_id"])
         ).fetchone()[0]
+        failed_at = eng.get_run(QUEUE, victim_run["run_id"])["failed_at"]
+        if failed_at is not None:
+            victim_reclaimed = failed_at.timestamp()
     rerun = eng.connection.execute(
         "select count(*) from (select task_id, step from effects group by task_id, step having count(*) > 1)"
     ).fetchone()[0]
@@ -341,6 +367,7 @@ def recovery(tmp: str, script: str, tasks: int, claim_timeout: int) -> dict:
         "tasks": tasks, "completed": stats["completed"], "claim_timeout_s": claim_timeout,
         "steps_done_before_kill": steps_before, "tasks_done_before_kill": done_before,
         "kill_to_first_new_step_s": (first_resume - kill_t) if first_resume else None,
+        "kill_to_lease_reclaimed_s": (victim_reclaimed - kill_t) if victim_reclaimed else None,
         "kill_to_victim_task_resumed_s": (victim_resume - kill_t) if victim_resume else None,
         "kill_to_all_done_s": finish_t - kill_t, "leases_reclaimed": timeouts, "steps_rerun": rerun,
     }
@@ -398,9 +425,11 @@ def print_report(r: dict) -> None:
     v = r["recovery"]
     print(f"5. Recovery: {v['tasks']} tasks of 3 x 20 ms steps, claim_timeout={v['claim_timeout_s']}s, worker killed -9 after 0.6 s")
     print(f"   done before kill: {v['tasks_done_before_kill']} tasks / {v['steps_done_before_kill']} steps")
-    first, victim = v["kill_to_first_new_step_s"], v["kill_to_victim_task_resumed_s"]
+    first, reclaimed, victim = v["kill_to_first_new_step_s"], v["kill_to_lease_reclaimed_s"], v["kill_to_victim_task_resumed_s"]
     print(f"   kill -> replacement worker's first step:   {first:.2f} s" if first is not None else "   no new step recorded")
-    print(f"   kill -> the interrupted task resumed:       {victim:.2f} s  (lease {v['claim_timeout_s']} s + reclaim + poll)"
+    print(f"   kill -> interrupted task's lease reclaimed: {reclaimed:.2f} s  (lease is {v['claim_timeout_s']} s from its last checkpoint)"
+          if reclaimed is not None else "   lease never reclaimed")
+    print(f"   kill -> interrupted task resumed:           {victim:.2f} s  (it re-queues behind the remaining backlog)"
           if victim is not None else "   interrupted task never resumed")
     print(f"   kill -> everything done:                    {v['kill_to_all_done_s']:.2f} s")
     print(f"   leases reclaimed: {v['leases_reclaimed']}, steps that ran twice: {v['steps_rerun']}, completed: {v['completed']}/{v['tasks']}")
@@ -415,6 +444,7 @@ def main() -> int:
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--json", help="write raw results here")
     ap.add_argument("--runs", type=int, default=3, help="measured runs per throughput row (plus one warm-up)")
+    ap.add_argument("--dir", help="directory to benchmark in (default: a temp dir; on Linux /tmp is often tmpfs)")
     args = ap.parse_args()
 
     tasks = 1000 if args.quick else 3000
@@ -423,16 +453,20 @@ def main() -> int:
     cal_n = 200 if args.quick else 500
     worker_counts = [1, 2, 4] if args.quick else [1, 2, 4, 8]
 
-    tmp = tempfile.mkdtemp(prefix="unhinged-bench-")
+    tmp = tempfile.mkdtemp(prefix="unhinged-bench-", dir=args.dir)
     script = os.path.join(tmp, "worker.py")
     with open(script, "w") as f:
         f.write(WORKER)
 
+    fs = filesystem(tmp)
+    global FS_IN_MEMORY
+    FS_IN_MEMORY = fs.lower() in IN_MEMORY_FS
+    check_filesystem(fs)
     print(f"benchmarking in {tmp} ...", file=sys.stderr)
     r: dict = {
         "host": {
             "commit": git_commit(), "cpu": cpu_model(), "os": f"{platform.system()} {platform.release()}",
-            "fs": filesystem(tmp), "sqlite": sqlite3.sqlite_version, "python": platform.python_version(),
+            "fs": fs, "sqlite": sqlite3.sqlite_version, "python": platform.python_version(),
             "platform": sys.platform,
         }
     }
