@@ -75,6 +75,17 @@ python -m unhinged --db quickstart.db emit user-activated:alice '{"activated_at"
 `python -m unhinged` is a small `absurdctl`: create and drop queues, spawn,
 inspect a task and its runs, cancel, retry, emit, clean up.
 
+Two fuller apps live in `examples/`, each with its own README:
+
+- [`pipeline/`](examples/pipeline/) turns every file in a directory into a
+  three-step task. Ctrl-C the worker and start it again; finished steps stay
+  finished. `--flaky` injects failures so you can watch the retries.
+- [`agent/`](examples/agent/) is an agent loop where every model call and
+  tool call is a step. The checkpoints are the transcript. It can ask a
+  question and park for a week, and a restarted worker replays the stored
+  turns without calling the model again. Runs on Claude, or on a scripted
+  model with no network.
+
 ## What's not here
 
 Partitioned queues and the pg_cron jobs that maintain them are Postgres features
