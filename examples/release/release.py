@@ -142,11 +142,12 @@ def cmd_init(args) -> None:
         f.write("build/\ndist/\n")
     if not os.path.isdir(os.path.join(d, ".git")):
         subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+        # The demo repo gets its own identity so `git tag -a` works on a
+        # machine with no global git config, such as a CI runner.
+        subprocess.run(["git", "config", "user.name", "release demo"], cwd=d, check=True)
+        subprocess.run(["git", "config", "user.email", "demo@example.com"], cwd=d, check=True)
         subprocess.run(["git", "add", "-A"], cwd=d, check=True)
-        subprocess.run(
-            ["git", "-c", "user.name=demo", "-c", "user.email=demo@example.com", "commit", "-q", "-m", "initial"],
-            cwd=d, check=True,
-        )
+        subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=d, check=True)
     print(f"sample project in {d}: five slow tests, a git repo, nothing released")
 
 
