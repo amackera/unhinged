@@ -1,0 +1,40 @@
+name: Release
+
+# Publishes to PyPI when a v* tag is pushed, through PyPI trusted
+# publishing: no API token is stored here. The PyPI project must list this
+# repository, this workflow file, and the "pypi" environment as a trusted
+# publisher first.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv venv --python 3.14 && uv pip install -e '.[dev]'
+      - run: uv run --no-sync pytest -q
+      - run: uv build
+      - run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(uv run --no-sync python -c "import unhinged; print(unhinged.__version__)")
+          test "$tag" = "$version" || { echo "tag $tag != package version $version"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

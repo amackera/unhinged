@@ -1,5 +1,7 @@
 """Unhinged: Absurd's durable-execution schema, unmoored from Postgres and run on SQLite."""
 
+__version__ = "0.1.0"
+
 from .engine import (
     Engine,
     EnginePool,
@@ -22,6 +24,7 @@ from .sdk import (
 )
 
 __all__ = [
+    "__version__",
     "Engine",
     "EnginePool",
     "InvalidRetryStrategy",

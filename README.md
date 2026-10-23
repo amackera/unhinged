@@ -35,7 +35,8 @@ re-ran when its lease had been reclaimed.
 
 Every commit is fsynced, which survives a crash. On macOS that is not the
 same as surviving a power cut; pass `fullfsync=True` for that, and expect
-it to be slow.
+it to be slow. `docs/durability.md` has the whole story, including what
+to do when the disk dies.
 
 ## Run it
 
