@@ -1,6 +1,7 @@
 """Run the example apps end to end with no network."""
 
 import importlib.util
+import subprocess
 import json
 import os
 import sys
@@ -191,3 +192,78 @@ def test_agent_heartbeat_extends_lease_during_model_call(agent, tmp_path):
         time.sleep(0.2)
     assert hb2.cancelled
     app.close()
+
+
+RELEASE = EXAMPLES / "release" / "release.py"
+
+
+def _release(db, *args, timeout=60):
+    return subprocess.run(
+        [sys.executable, str(RELEASE), "--db", db, *args],
+        capture_output=True, text=True, timeout=timeout, env={**os.environ, "PYTHONPATH": str(EXAMPLES.parent)},
+    )
+
+
+def test_release_survives_interrupt_parks_and_publishes_once(tmp_path):
+    import signal
+    import subprocess as sp
+    import time
+
+    db = str(tmp_path / "release.db")
+    proj = str(tmp_path / "proj")
+    assert _release(db, "init", proj).returncode == 0
+    run = ["--project", proj, "--window", "600"]
+
+    # Run 1: interrupt while the slow tests are running.
+    p = sp.Popen([sys.executable, str(RELEASE), "--db", db, "run", "1.4.0", *run],
+                 stdout=sp.PIPE, stderr=sp.STDOUT, text=True, env={**os.environ, "PYTHONPATH": str(EXAMPLES.parent)})
+    time.sleep(2.0)
+    p.send_signal(signal.SIGINT)
+    out1, _ = p.communicate(timeout=30)
+    assert p.returncode == 130, out1
+    assert "[build  ]" in out1 and "[test   ] " in out1 and "exit" not in out1.split("[test   ]")[1]
+    assert "interrupted" in out1
+
+    # Run 2: build is cached, tests re-run, then it parks on approval.
+    p = sp.Popen([sys.executable, str(RELEASE), "--db", db, "run", "1.4.0", *run],
+                 stdout=sp.PIPE, stderr=sp.STDOUT, text=True, env={**os.environ, "PYTHONPATH": str(EXAMPLES.parent)})
+    deadline = time.time() + 40
+    out2 = ""
+    while time.time() < deadline and "[approve] waiting" not in out2:
+        out2 += p.stdout.readline()
+    assert "[build  ] cached" in out2, out2
+    assert "[tag    ]" in out2
+    assert "resuming task" in out2
+
+    # Approve from "another terminal" while run 2 is still parked.
+    r = _release(db, "approve", "1.4.0", "--by", "tester")
+    assert r.returncode == 0, r.stdout + r.stderr
+    rest, _ = p.communicate(timeout=30)
+    out2 += rest
+    assert p.returncode == 0, out2
+    assert "approved by tester" in out2 and "[publish] dist/app-1.4.0.zip" in out2
+    assert (tmp_path / "proj" / "dist" / "app-1.4.0.zip").exists()
+    tags = sp.run(["git", "tag"], cwd=proj, capture_output=True, text=True).stdout.split()
+    assert tags == ["v1.4.0"]
+
+    # Run 3: the same version is a no-op; nothing is published twice.
+    r = _release(db, "run", "1.4.0", *run)
+    assert r.returncode == 0 and "resuming task" in r.stdout and "released" in r.stdout
+    assert "[build  ]" not in r.stdout  # the handler never ran again
+
+    r = _release(db, "status", "1.4.0")
+    assert "completed" in r.stdout and "publish" in r.stdout and "build" in r.stdout
+
+
+def test_release_failed_tests_end_the_release_without_retry(tmp_path):
+    db = str(tmp_path / "release.db")
+    proj = str(tmp_path / "proj")
+    _release(db, "init", proj)
+    (tmp_path / "proj" / "tests" / "test_app.py").write_text(
+        "import unittest\nclass T(unittest.TestCase):\n    def test_red(self): self.fail('nope')\n"
+    )
+    r = _release(db, "run", "2.0.0", "--project", proj)
+    assert r.returncode == 1
+    assert "release 2.0.0: failed" in r.stdout
+    assert r.stdout.count("[test   ] " + sys.executable) == 1, "a red test suite must not be retried"
+    assert not (tmp_path / "proj" / "dist").exists()

@@ -46,8 +46,10 @@ python examples/crash_demo.py
 python examples/bench.py     # calibrates the disk first; see BENCHMARKS.md
 ```
 
-`examples/pipeline/` is a resumable batch job. `examples/agent/` is an agent
-loop where every model call is a step. `python -m unhinged` is the CLI.
+`examples/release/` is a release checklist that survives Ctrl-C and waits
+for approval. `examples/pipeline/` is a resumable batch job.
+`examples/agent/` is an agent loop where every model call is a step.
+`python -m unhinged` is the CLI.
 
 ## What's not here
 
