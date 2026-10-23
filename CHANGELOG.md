@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- An async SDK: `AsyncUnhinged` and `AsyncTaskContext`, with the same
+  checkpoints as the sync one, so a task can move between the two.
+- `unhinged.pydantic_ai.UnhingedDurability`, a durable-execution backend for
+  Pydantic AI agents with the same step names as Absurd's. Install with
+  `unhinged[pydantic-ai]`.
+
 ## 0.1.0 (2026-10-23)
 
 First release. A port of Absurd 0.5.1's schema and procedures to SQLite.

@@ -2,6 +2,7 @@
 
 __version__ = "0.1.0"
 
+from .aio import AsyncTaskContext, AsyncUnhinged
 from .engine import (
     Engine,
     EnginePool,
@@ -25,6 +26,8 @@ from .sdk import (
 
 __all__ = [
     "__version__",
+    "AsyncTaskContext",
+    "AsyncUnhinged",
     "Engine",
     "EnginePool",
     "InvalidRetryStrategy",

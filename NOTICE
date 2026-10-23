@@ -5,3 +5,7 @@ This product is a port of Absurd (https://github.com/earendil-works/absurd),
 by the Absurd authors (earendil-works), licensed under the Apache License, Version 2.0.
 The table layout, procedure names, state machine and the engine tests are
 derived from Absurd's sql/absurd.sql and tests/.
+
+unhinged/pydantic_ai.py is a port of the Absurd durability capability in
+Pydantic AI Harness (https://github.com/pydantic/pydantic-ai), Copyright
+Pydantic Services Inc., licensed under the MIT License.

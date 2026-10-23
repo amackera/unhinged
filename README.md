@@ -50,11 +50,12 @@ python examples/bench.py     # calibrates the disk first; see BENCHMARKS.md
 `examples/release/` is a release checklist that survives Ctrl-C and waits
 for approval. `examples/pipeline/` is a resumable batch job.
 `examples/agent/` is an agent loop where every model call is a step.
-`python -m unhinged` is the CLI.
+`python -m unhinged` is the CLI. Pydantic AI agents run durably on it
+through `unhinged.pydantic_ai.UnhingedDurability`; see `docs/pydantic-ai.md`.
 
 ## What's not here
 
-Partitioned queues, pg_cron, and the async SDK. Nothing deletes old tasks
+Partitioned queues, pg_cron, and Absurd's SDK hooks. Nothing deletes old tasks
 unless you call `app.cleanup()` or pass `maintenance_interval` to
 `start_worker`.
 

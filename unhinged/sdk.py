@@ -33,12 +33,14 @@ UTC = timezone.utc
 _UNKNOWN_TASK_DEFER_BASE_SECONDS = 5
 _UNKNOWN_TASK_DEFER_JITTER_SECONDS = 5
 _CHECKPOINT_NOT_FOUND = object()
-_current_task_context: contextvars.ContextVar[Optional["TaskContext"]] = contextvars.ContextVar(
+_current_task_context: contextvars.ContextVar[Optional[Any]] = contextvars.ContextVar(
     "unhinged_task_context", default=None
 )
 
 
-def get_current_context() -> Optional["TaskContext"]:
+def get_current_context() -> Optional[Any]:
+    """The task context of the handler running in this context: a
+    :class:`TaskContext`, an :class:`unhinged.aio.AsyncTaskContext`, or None."""
     return _current_task_context.get()
 
 
