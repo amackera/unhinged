@@ -166,3 +166,28 @@ def test_agent_tool_cannot_escape_root(agent, tmp_path):
     app.run_until_idle()
     assert "outside the root" in app.fetch_task_result(task_id).result["text"]
     app.close()
+
+
+def test_agent_heartbeat_extends_lease_during_model_call(agent, tmp_path):
+    import time
+
+    db = str(tmp_path / "hb.db")
+    app = agent.make_app(db)
+    task = app.spawn("agent", {"prompt": "x"}, queue=agent.QUEUE)
+    claim = app.engine.claim_task(agent.QUEUE, "w", agent.CLAIM_TIMEOUT)[0]
+    before = app.engine.get_run(agent.QUEUE, claim["run_id"])["claim_expires_at"]
+
+    hb = agent.Heartbeat(agent.Engine(db), claim["run_id"], every=0.05)
+    with hb:
+        time.sleep(0.3)  # a "model call" in flight
+    after = app.engine.get_run(agent.QUEUE, claim["run_id"])["claim_expires_at"]
+    assert after > before
+    assert not hb.cancelled
+
+    # Cancelled mid-call: the heartbeat notices and the handler would stop.
+    app.cancel_task(task["task_id"])
+    hb2 = agent.Heartbeat(agent.Engine(db), claim["run_id"], every=0.05)
+    with hb2:
+        time.sleep(0.2)
+    assert hb2.cancelled
+    app.close()

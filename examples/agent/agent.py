@@ -22,15 +22,48 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 
-from unhinged import TaskCancelled, TimeoutError, Unhinged
+from unhinged import Engine, TaskCancelled, TimeoutError, Unhinged
 
 QUEUE = "agent"
 DEFAULT_DB = "agent.db"
 MODEL = "claude-opus-5-5"
 ANSWER_TIMEOUT = 7 * 86400
 MAX_TURNS = 30
+# A model call can take minutes, longer than any lease we'd want to wait out
+# after a crash. So the lease is short and a thread extends it while the call
+# is in flight. Kill the worker and another one picks the run up within this.
+CLAIM_TIMEOUT = 30
+
+
+class Heartbeat:
+    """Extend a run's lease from a background thread while a long call runs."""
+
+    def __init__(self, engine: Engine, run_id: str, every: float = CLAIM_TIMEOUT / 3) -> None:
+        self.engine, self.run_id, self.every = engine, run_id, every
+        self.stop = threading.Event()
+        self.cancelled = False
+
+    def _loop(self) -> None:
+        while not self.stop.wait(self.every):
+            try:
+                self.engine.extend_claim(QUEUE, self.run_id, CLAIM_TIMEOUT)
+            except TaskCancelled:
+                self.cancelled = True
+                return
+            except Exception:
+                return  # the lease will expire and the run will be reclaimed
+
+    def __enter__(self) -> "Heartbeat":
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.stop.set()
+        self.thread.join()
 
 SYSTEM = (
     "You are a careful assistant working inside one directory. Use the tools to look "
@@ -135,6 +168,7 @@ def make_model(name: str):
 
 def register(app: Unhinged, root: str, model) -> None:
     root = os.path.abspath(root)
+    heartbeat_engine = Engine(app.path)  # its own connection, used only from the heartbeat thread
 
     def safe_path(rel: str) -> str:
         path = os.path.abspath(os.path.join(root, rel))
@@ -164,7 +198,10 @@ def register(app: Unhinged, root: str, model) -> None:
         for turn in range(MAX_TURNS):
             # The model call is a step: on replay it returns the stored response
             # and no request goes out. The stored dicts are the transcript.
-            response = ctx.step(f"turn:{turn}", lambda: model(messages))
+            with Heartbeat(heartbeat_engine, ctx.run_id) as hb:
+                response = ctx.step(f"turn:{turn}", lambda: model(messages))
+            if hb.cancelled:
+                raise TaskCancelled()
             messages.append({"role": "assistant", "content": response["content"]})
 
             if response["stop_reason"] == "refusal":
@@ -222,7 +259,7 @@ def cmd_worker(args) -> None:
     app = make_app(args.db)
     register(app, args.root, make_model(args.model))
     print(f"agent worker on {args.db}, root {os.path.abspath(args.root)}, model {args.model}")
-    app.start_worker(claim_timeout=600, poll_interval=0.2, stop_when_idle=args.once)
+    app.start_worker(claim_timeout=CLAIM_TIMEOUT, poll_interval=0.2, stop_when_idle=args.once)
     app.close()
 
 

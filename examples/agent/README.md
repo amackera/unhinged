@@ -31,6 +31,12 @@ call that fails outright (a 400, a network partition longer than the SDK's
 retries) fails the task, and the task's own retry replays the transcript and
 makes only the one call that never finished.
 
+The lease is 30 seconds. A model call can run longer than that, so while one
+is in flight a thread extends the lease every 10 seconds. The worker holds
+the run only as long as it keeps proving it's alive, and a killed worker's
+run is picked up within 30 seconds, not after a ten-minute timeout sized for
+the longest possible call.
+
 `--model scripted` swaps in a canned model that lists, reads, asks, and
 writes a note. It needs no network and is what the tests run.
 
