@@ -1,10 +1,9 @@
 # unhinged
 
 [Absurd](https://github.com/earendil-works/absurd) is Armin Ronacher's durable
-execution engine that lives entirely inside Postgres: one SQL file of tables and
-stored procedures, plus a thin SDK. **unhinged** is that schema and state
-machine ported to SQLite. Same tables, same procedures, same semantics, no
-server, zero dependencies.
+execution engine: one SQL file that installs tasks, steps, checkpoints, sleeps
+and events into Postgres, and a thin SDK on top. unhinged is the same engine on
+SQLite. No server, no dependencies, one file on disk.
 
 ```python
 from unhinged import Unhinged
@@ -22,78 +21,78 @@ app.spawn("fulfil-order", {"order_id": 42, "card": "tok_1", "amount": 1999})
 app.start_worker(concurrency=4)
 ```
 
-Steps run once and are checkpointed in SQLite. If the worker crashes, is
-`kill -9`ed, or the task sleeps or waits for an event, the next run replays the
-handler and completed steps return their stored value instead of executing.
-`tests/test_sdk.py::test_crash_recovery_across_processes` SIGKILLs a worker
-after step 2 and checks that a fresh process runs only steps 3 and 4.
+Steps run once. Their results go to SQLite, and when the handler runs again
+after a retry, a sleep, an event, or a worker that got `kill -9`ed, a step that
+already finished returns its stored value instead of executing. The test suite
+does exactly that: it kills a worker after step 2 of 5, starts a fresh process,
+and checks that only steps 3 and 4 run.
 
-## What was ported
+## How it works
 
-| Absurd (Postgres)                         | unhinged (SQLite)                                  |
-|-------------------------------------------|----------------------------------------------------|
-| `absurd` schema                           | tables at the top level of one `.db` file          |
-| `t_`/`r_`/`c_`/`e_`/`w_` tables per queue | same names, same columns                           |
-| `uuid`, `jsonb`, `timestamptz`, `interval`| TEXT uuidv7, TEXT json, fixed-width UTC text, int seconds |
-| plpgsql procedures (`absurd.spawn_task`…) | `Engine` methods with the same names and arguments |
-| `FOR UPDATE SKIP LOCKED`, row locks       | one `BEGIN IMMEDIATE` transaction per procedure    |
-| SQLSTATE `AB001`/`AB002`/`AB003`          | `TaskCancelled` / `RunAlreadyFailed` / `InvalidRetryStrategy` |
-| `absurd.fake_now` for tests               | `engine.set_fake_now()`                            |
-| `absurdctl`                               | `python -m unhinged`                               |
-| partitioned storage mode, `i_` table      | dropped (Postgres-only)                            |
-| pg_cron maintenance jobs                  | dropped; `start_worker(maintenance_interval=…)` or `app.cleanup()` instead |
+Absurd keeps five tables per queue (tasks, runs, checkpoints, events, waits) and
+does all of its work in stored procedures: `spawn_task`, `claim_task`,
+`complete_run`, `fail_run`, `await_event`, `emit_event` and so on. unhinged keeps
+the same five tables with the same columns, and each procedure is a method on
+`Engine` with the same name and arguments. The plpgsql became Python. The SQL
+mostly came across as it was.
 
-Every `absurd.*` function has a counterpart on `unhinged.Engine`: `create_queue`,
-`drop_queue`, `list_queues`, `get_queue_policy`, `set_queue_policy`,
-`spawn_task`, `claim_task`, `complete_run`, `schedule_run`, `fail_run`,
-`retry_task`, `set_task_checkpoint_state`, `get_task_checkpoint_state(s)`,
-`extend_claim`, `await_event`, `emit_event`, `cancel_task`, `cleanup_tasks`,
-`cleanup_events`, `cleanup_all_queues`, `get_task_result`. The engine tests in
-`tests/test_engine.py` are ports of Absurd's own test suite.
+What Postgres gave Absurd for free was row locking. `FOR UPDATE SKIP LOCKED`
+lets many workers claim from one queue at the same time. SQLite has one writer
+at a time, so each procedure runs inside a single `BEGIN IMMEDIATE` transaction
+and there is nothing to skip. Workers poll, the way Absurd's do. Several worker
+processes can share one database file through WAL mode, and threads inside a
+worker each get their own connection.
 
-Absurd is pull-based on Postgres too, so nothing was lost there: workers poll.
-Multiple worker processes share one database file through WAL mode and
-`busy_timeout`; threads inside a worker each get their own connection.
+Every commit is fsynced. A checkpoint that was acknowledged survives a power
+cut, which is what Postgres guarantees and what a step like "charge the card"
+needs. `Unhinged(..., synchronous="normal")` is about 40% faster and still
+survives a killed process, but can lose the last few commits if the machine
+goes down.
 
 ## Run it
 
-Needs Python 3.10+ linked against SQLite 3.33 or newer (2020; every current
-Python build qualifies).
-
 ```bash
 uv venv && uv pip install -e '.[dev]'
-pytest                                   # 44 tests, ~3s
-python examples/crash_demo.py            # kill -9 a worker mid-task, watch it resume
-python examples/bench.py --tasks 2000 --workers 4   # add --synchronous normal to compare
+pytest
+python examples/crash_demo.py
+python examples/bench.py --tasks 2000 --workers 4
 ```
 
-Quickstart (two terminals):
+The crash demo spawns a five-step task, runs a worker that kills itself after
+step 2, waits for the lease to expire, and starts a second worker that finishes
+the other three. The bench drains a few thousand three-step tasks across worker
+processes. On a laptop it lands around 3,000 tasks a second, and more workers
+don't raise that because SQLite serialises the writes. Enough for one machine.
+
+The quickstart is two terminals:
 
 ```bash
 python examples/quickstart_worker.py
 python examples/quickstart_client.py alice --await
 python -m unhinged --db quickstart.db emit user-activated:alice '{"activated_at":"now"}'
-python -m unhinged --db quickstart.db stats
 ```
 
-## Caveats
+`python -m unhinged` is a small `absurdctl`: create and drop queues, spawn,
+inspect a task and its runs, cancel, retry, emit, clean up.
 
-* SQLite has one writer at a time. Every claim, checkpoint and completion is a
-  short write transaction, so throughput tops out around a few thousand tasks
-  per second on a laptop regardless of worker count. Plenty for one machine,
-  not a replacement for Postgres across a fleet.
-* Nothing deletes old rows unless you ask. Pass `maintenance_interval` to
-  `start_worker`, call `app.cleanup()` from a cron job, or run
-  `python -m unhinged cleanup`. Retention per queue is set with
-  `set_queue_policy` (default 30 days, 1000 rows per sweep).
-* Commits fsync by default (`synchronous=FULL`, same guarantee as Postgres):
-  an acknowledged checkpoint survives a power cut, so a "charge the card" step
-  never silently runs twice after reboot. `Unhinged(..., synchronous="normal")`
-  is about 40% faster and still survives `kill -9`, but an OS crash or power
-  loss can drop the last few commits.
-* Only the synchronous SDK was ported. The async client, hooks, and `absurdctl`
-  partition commands were not.
+## What's not here
+
+Partitioned queues and the pg_cron jobs that maintain them are Postgres features
+and stayed behind. Nothing deletes finished tasks unless you ask: pass
+`maintenance_interval` to `start_worker`, call `app.cleanup()`, or run
+`python -m unhinged cleanup`. Retention is per queue through `set_queue_policy`,
+30 days by default.
+
+Only the synchronous SDK was ported. Absurd's async client and hooks were not.
+
+Two places the semantics differ on purpose. The clock is read once per
+transaction rather than per statement, so a lease that expires inside
+`claim_task` is handed out again in the same call. And cancellation policies
+are checked in Python, because SQLite's `julianday` arithmetic is not exact to
+the microsecond.
+
+Needs Python 3.10+ and SQLite 3.33 or newer.
 
 ## License
 
-Apache-2.0, like Absurd. See `NOTICE` for attribution.
+Apache-2.0, same as Absurd. `NOTICE` has the attribution.
