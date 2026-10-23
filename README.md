@@ -43,6 +43,7 @@ it to be slow.
 uv venv && uv pip install -e '.[dev]'
 pytest
 python examples/crash_demo.py
+python examples/bench.py     # calibrates the disk first; see BENCHMARKS.md
 ```
 
 `examples/pipeline/` is a resumable batch job. `examples/agent/` is an agent

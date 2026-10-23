@@ -1,0 +1,25 @@
+name: Bench
+
+# Manual. A GitHub-hosted runner is a cloud VM with a cloud disk, so these
+# numbers are a Linux data point, not a hardware benchmark.
+on:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv venv --python 3.14
+      - run: uv pip install -e .
+      - run: |
+          echo "runner: $(nproc) cpus, $(df -T . | tail -1)"
+          cat /proc/cpuinfo | grep "model name" | head -1
+          uv run --no-sync python examples/bench.py --json bench.json | tee bench.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: |
+            bench.txt
+            bench.json
