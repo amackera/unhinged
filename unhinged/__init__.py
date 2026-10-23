@@ -1,6 +1,6 @@
 """Unhinged: Absurd's durable-execution schema, unmoored from Postgres and run on SQLite."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .aio import AsyncTaskContext, AsyncUnhinged
 from .engine import (

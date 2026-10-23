@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-10-23)
 
 - An async SDK: `AsyncUnhinged` and `AsyncTaskContext`, with the same
   checkpoints as the sync one, so a task can move between the two.
