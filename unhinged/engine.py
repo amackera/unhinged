@@ -71,18 +71,43 @@ class InvalidRetryStrategy(UnhingedError):
 # small helpers
 
 
+_uuid7_lock = threading.Lock()
+_uuid7_last_ms = 0
+_uuid7_counter = 0
+
+
 def uuidv7() -> str:
-    """Port of ``absurd.portable_uuidv7``."""
+    """Port of ``absurd.portable_uuidv7``.
+
+    Uses ``uuid.uuid7`` on Python 3.14+. The fallback keeps a counter in the
+    bits after the timestamp so ids minted in the same millisecond by one
+    process still sort in the order they were made, as 3.14's do.
+    """
+    global _uuid7_last_ms, _uuid7_counter
     fn = getattr(uuid, "uuid7", None)
     if fn is not None:
         return str(fn())
-    ts_ms = int(datetime.now(UTC).timestamp() * 1000)
-    rnd = bytearray(os.urandom(16))
+    with _uuid7_lock:
+        ts_ms = int(datetime.now(UTC).timestamp() * 1000)
+        if ts_ms <= _uuid7_last_ms:
+            ts_ms = _uuid7_last_ms
+            _uuid7_counter += 1
+            if _uuid7_counter > 0x0FFF:
+                # Counter exhausted inside one millisecond: borrow the next one.
+                ts_ms += 1
+                _uuid7_last_ms = ts_ms
+                _uuid7_counter = 0
+        else:
+            _uuid7_last_ms = ts_ms
+            _uuid7_counter = int.from_bytes(os.urandom(2), "big") >> 5  # 11-bit random start
+        counter = _uuid7_counter
+    b = bytearray(os.urandom(16))
     for i in range(6):
-        rnd[i] = (ts_ms >> ((5 - i) * 8)) & 0xFF
-    rnd[6] = (rnd[6] & 0x0F) | 0x70
-    rnd[8] = (rnd[8] & 0x3F) | 0x80
-    return str(uuid.UUID(bytes=bytes(rnd)))
+        b[i] = (ts_ms >> ((5 - i) * 8)) & 0xFF
+    b[6] = 0x70 | (counter >> 8)
+    b[7] = counter & 0xFF
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(uuid.UUID(bytes=bytes(b)))
 
 
 def ts(dt: datetime) -> str:
@@ -620,11 +645,12 @@ class Engine:
                   from {r} r
                   join {t} t on t.task_id = r.task_id
                  where r.run_id in ({marks})
-                 order by r.available_at, r.run_id
                 """,
                 tuple(candidates),
             )
-            return [_row(row) for row in rows]
+            # Hand back in the order they were selected: oldest available first.
+            position = {run_id: i for i, run_id in enumerate(candidates)}
+            return [_row(row) for row in sorted(rows, key=lambda row: position[row["run_id"]])]
 
     def complete_run(self, queue: str, run_id: str, state: JsonValue = None) -> None:
         """Port of ``absurd.complete_run``."""

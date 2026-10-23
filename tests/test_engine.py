@@ -645,3 +645,14 @@ def test_durability_pragmas(tmp_path):
     e.close()
     with pytest.raises(ValueError):
         Engine(str(tmp_path / "c.db"), synchronous="sometimes")
+
+
+def test_uuidv7_fallback_is_monotonic(monkeypatch):
+    import uuid as _uuid
+    from unhinged import engine as eng
+
+    monkeypatch.setattr(_uuid, "uuid7", None, raising=False)
+    ids = [eng.uuidv7() for _ in range(2000)]
+    assert ids == sorted(ids)
+    assert len(set(ids)) == 2000
+    assert all(_uuid.UUID(i).version == 7 for i in ids)
