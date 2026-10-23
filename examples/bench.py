@@ -17,7 +17,7 @@ WORKER = textwrap.dedent(
     """
     import sys
     from unhinged import Unhinged
-    app = Unhinged(sys.argv[1], queue_name="bench", synchronous=sys.argv[4])
+    app = Unhinged(sys.argv[1], queue_name="bench", synchronous=sys.argv[4], fullfsync=sys.argv[5] == "1")
 
     @app.register_task("three-step")
     def three_step(params, ctx):
@@ -38,7 +38,14 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--batch", type=int, default=10)
     ap.add_argument("--synchronous", default="full", choices=["full", "normal"])
+    ap.add_argument("--fullfsync", action="store_true", help="flush the drive cache on every sync (power-safe on macOS; slow)")
     args = ap.parse_args()
+
+    if sys.platform == "darwin" and not args.fullfsync:
+        print(
+            "note: on macOS, fsync does not flush the drive cache, so these numbers are\n"
+            "      crash-safe, not power-safe. Re-run with --fullfsync for the power-safe figure."
+        )
 
     tmp = tempfile.mkdtemp()
     db = os.path.join(tmp, "bench.db")
@@ -47,7 +54,7 @@ def main() -> None:
         f.write(WORKER)
     env = {**os.environ, "PYTHONPATH": os.path.dirname(os.path.dirname(os.path.abspath(__file__)))}
 
-    app = Unhinged(db, queue_name="bench", synchronous=args.synchronous)
+    app = Unhinged(db, queue_name="bench", synchronous=args.synchronous, fullfsync=args.fullfsync)
     t0 = time.perf_counter()
     with app.engine.transaction():
         for i in range(args.tasks):
@@ -57,7 +64,10 @@ def main() -> None:
 
     t0 = time.perf_counter()
     procs = [
-        subprocess.Popen([sys.executable, script, db, f"w{i}", str(args.batch), args.synchronous], env=env)
+        subprocess.Popen(
+            [sys.executable, script, db, f"w{i}", str(args.batch), args.synchronous, "1" if args.fullfsync else "0"],
+            env=env,
+        )
         for i in range(args.workers)
     ]
     for p in procs:
@@ -69,7 +79,7 @@ def main() -> None:
     print(
         f"{args.workers} worker processes drained {args.tasks} tasks "
         f"({args.tasks * 3} checkpoints) in {run_s:.2f}s: {args.tasks / run_s:,.0f} tasks/s "
-        f"[synchronous={args.synchronous}]"
+        f"[synchronous={args.synchronous}, fullfsync={'on' if args.fullfsync else 'off'}]"
     )
     print(f"db size: {os.path.getsize(db) / 1024:,.0f} KiB")
     app.close()

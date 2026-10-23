@@ -632,3 +632,16 @@ def test_spawn_validation(engine: Engine):
     with pytest.raises(InvalidRetryStrategy):
         engine.spawn_task("q", "t", {}, {"retry_strategy": {"kind": "bogus"}})
     assert engine.get_task("q", engine.spawn_task("q", "t", None)["task_id"])["params"] is None
+
+
+def test_durability_pragmas(tmp_path):
+    e = Engine(str(tmp_path / "a.db"))
+    assert e.connection.execute("pragma synchronous").fetchone()[0] == 2  # FULL
+    assert e.connection.execute("pragma fullfsync").fetchone()[0] == 0
+    e.close()
+    e = Engine(str(tmp_path / "b.db"), synchronous="normal", fullfsync=True)
+    assert e.connection.execute("pragma synchronous").fetchone()[0] == 1
+    assert e.connection.execute("pragma fullfsync").fetchone()[0] == 1
+    e.close()
+    with pytest.raises(ValueError):
+        Engine(str(tmp_path / "c.db"), synchronous="sometimes")

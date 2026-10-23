@@ -27,7 +27,9 @@ next run skips the steps that already finished.
 
 Same tables as Absurd, same procedure names. The stored procedures are
 Python methods on `Engine`, each one a `BEGIN IMMEDIATE` transaction.
-Workers poll. Every commit is fsynced.
+Workers poll. Every commit is fsynced, which survives a crash. On macOS
+that is not the same as surviving a power cut; pass `fullfsync=True` for
+that, and expect it to be slow.
 
 ## Run it
 
