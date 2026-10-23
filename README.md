@@ -1,8 +1,8 @@
-# unhinged
+# Unhinged
 
 [Absurd](https://github.com/earendil-works/absurd) is Armin Ronacher's durable
 execution engine: one SQL file that installs tasks, steps, checkpoints, sleeps
-and events into Postgres, and a thin SDK on top. unhinged is the same engine on
+and events into Postgres, and a thin SDK on top. Unhinged is the same engine on
 SQLite. No server, no dependencies, one file on disk.
 
 ```python
@@ -31,7 +31,7 @@ and checks that only steps 3 and 4 run.
 
 Absurd keeps five tables per queue (tasks, runs, checkpoints, events, waits) and
 does all of its work in stored procedures: `spawn_task`, `claim_task`,
-`complete_run`, `fail_run`, `await_event`, `emit_event` and so on. unhinged keeps
+`complete_run`, `fail_run`, `await_event`, `emit_event` and so on. Unhinged keeps
 the same five tables with the same columns, and each procedure is a method on
 `Engine` with the same name and arguments. The plpgsql became Python. The SQL
 mostly came across as it was.
