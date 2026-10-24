@@ -49,7 +49,7 @@ python examples/bench.py     # calibrates the disk first; see BENCHMARKS.md
 
 `examples/gauntlet/` runs everything that can go wrong in one sitting:
 thousands of tasks, workers killed at random, the disk deleted and restored
-from a Litestream replica, and a Linux VM hard-stopped mid-run to count lost
+from a Litestream replica, and a Linux VM crashed mid-run to count lost
 commits. It ends with a ledger showing every task completed exactly once.
 
 ![the gauntlet](examples/gauntlet/gauntlet.gif)

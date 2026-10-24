@@ -1,4 +1,4 @@
-"""Phase 4 of the gauntlet: pull the plug on a Linux VM and count lost commits.
+"""Phase 4 of the gauntlet: crash a Linux VM and count lost commits.
 
 Needs Lima (brew install lima). A VM named `unhinged` is created on first use.
 
@@ -9,9 +9,11 @@ the VM mid-run, boot it, and check every acknowledged checkpoint against the
 file. One that is missing was acknowledged and then lost: a lost commit.
 
 A hard stop loses the guest kernel's page cache, so this is the "OS crashed"
-case. What the guest fsynced is on the virtual disk; what it didn't is gone.
-That is precisely the difference between synchronous=NORMAL and FULL, so the
-phase runs both.
+case, not a power cut: the virtual disk is a file on the host, and the host
+keeps running. What the guest fsynced is on that disk; what it didn't is
+gone. That is precisely the difference between synchronous=NORMAL and FULL,
+so the phase runs both. It says nothing about a drive that lies about
+flushing; see docs/durability.md for that boundary.
 """
 
 from __future__ import annotations
@@ -99,7 +101,7 @@ def ensure_vm(log) -> str:
     # Copy the package in so the guest runs this exact code.
     pkg = os.path.join(ROOT, "unhinged")
     sh("copy", "-r", pkg, f"{VM}:{home}/gauntlet/")
-    guest("sync")  # or the next power cut takes our own files with it
+    guest("sync")  # or the next crash takes our own files with it
     return home
 
 
@@ -149,7 +151,7 @@ def run_one(sync: str, tasks: int, workers: int, run_seconds: float, home: str, 
         time.sleep(0.2)
     with lock:
         n_before = len(acks)
-    log(f"[{sync}] {n_before:,} checkpoints acknowledged to the host; [bold red]pulling the plug[/] (limactl stop --force)")
+    log(f"[{sync}] {n_before:,} checkpoints acknowledged to the host; [bold red]crashing the VM[/] (limactl stop --force)")
     cut_at = time.time()
     sh("stop", "--force", VM, check=False)
     for p in procs:
@@ -172,13 +174,13 @@ def run_one(sync: str, tasks: int, workers: int, run_seconds: float, home: str, 
     return result
 
 
-def phase_power_cut(s, ui, tasks: int = 4000, workers: int = 4, run_seconds: float = 6.0) -> None:
-    s.phase = "4 power cut"
+def phase_os_crash(s, ui, tasks: int = 4000, workers: int = 4, run_seconds: float = 6.0) -> None:
+    s.phase = "4 OS crash"
     home = ensure_vm(s.log)
     results = [run_one(sync, tasks, workers, run_seconds, home, s.log, ui) for sync in ("normal", "full")]
     summary = "; ".join(
         f"{r['sync'].upper()}: {r['missing']} of {r['acked']:,} acknowledged checkpoints lost, integrity {r['integrity']}"
         for r in results
     )
-    s.extra["power cut"] = summary
-    s.log(f"power cut done: {summary}")
+    s.extra["os crash"] = summary
+    s.log(f"OS crash done: {summary}")

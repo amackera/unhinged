@@ -3,7 +3,7 @@
     pip install rich
     python examples/gauntlet/gauntlet.py                  # load + chaos + ledger
     python examples/gauntlet/gauntlet.py --disk-death     # + Litestream restore on "machine B"
-    python examples/gauntlet/gauntlet.py --power-cut      # + hard-kill a Linux VM mid-run
+    python examples/gauntlet/gauntlet.py --os-crash       # + hard-stop a Linux VM mid-run
 
 Phases:
 
@@ -12,10 +12,12 @@ Phases:
 3. Disk.   (--disk-death) Litestream has been replicating the file. We delete
            the directory, restore from the replica on "machine B", and fresh
            workers finish the backlog there.
-4. Power.  (--power-cut) Workers inside a Lima VM, database on the VM's own
+4. Crash.  (--os-crash) Workers inside a Lima VM, database on the VM's own
            disk, every committed checkpoint acknowledged to the host over a
            pipe. We hard-stop the VM, boot it, and count acknowledged
            checkpoints the file no longer has. Run at NORMAL and at FULL.
+           This loses the guest kernel's page cache, which is an OS crash,
+           not a power cut: the host and its drive survive.
 5. Ledger. Every task completed exactly once, every re-executed step explained
            by a reclaimed lease or replica lag, integrity ok.
 
@@ -342,7 +344,7 @@ def ledger(s: State) -> dict:
         "runs_timed_out": sum(1 for r in runs.values() if timed_out(r["run_id"])),
         "shared_runs": shared, "double_in_run": double, "unexplained": unexplained,
         "integrity": integrity, "elapsed_s": round(time.monotonic() - s.started, 1),
-        "power_cut": s.extra.get("power cut"),
+        "os_crash": s.extra.get("os crash"),
         "replica_lag": s.extra.get("replica lag"),
     }
     report["ok"] = (stats["completed"] == s.tasks and not shared and not double and not unexplained and integrity == "ok")
@@ -367,8 +369,8 @@ def print_ledger(r: dict) -> None:
     t.add_row("a run executed by two processes", f"{len(r['shared_runs'])}")
     t.add_row("a step executed twice in one run", f"{len(r['double_in_run'])}")
     t.add_row("unexplained re-executions", f"{len(r['unexplained'])}")
-    if r.get("power_cut"):
-        t.add_row("power cut", r["power_cut"])
+    if r.get("os_crash"):
+        t.add_row("OS crash", r["os_crash"])
     t.add_row("integrity_check", r["integrity"])
     t.add_row("elapsed", f"{r['elapsed_s']}s")
     t.add_row("verdict", "[bold green]OK[/]" if r["ok"] else "[bold red]FAILED[/]")
@@ -386,7 +388,7 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--kill-every", type=float, default=0.25)
     ap.add_argument("--disk-death", action="store_true", help="replicate with Litestream, lose the disk, restore and finish elsewhere")
-    ap.add_argument("--power-cut", action="store_true", help="hard-stop a Lima VM mid-run and count lost commits")
+    ap.add_argument("--os-crash", action="store_true", help="hard-stop a Lima VM mid-run and count lost commits")
     ap.add_argument("--no-ui", action="store_true")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--json", help="write the ledger here")
@@ -418,10 +420,10 @@ def main() -> int:
                              stop_at_fraction=0.7 if args.disk_death else 1.0, rng=rng)
         if args.disk_death:
             phase_disk_death(s, ui, script, args.workers, args.step_ms)
-        if args.power_cut:
-            from power_cut import phase_power_cut  # lives next to this file
+        if args.os_crash:
+            from os_crash import phase_os_crash  # lives next to this file
 
-            phase_power_cut(s, ui)
+            phase_os_crash(s, ui)
         if completed(s.db) < s.tasks:
             phase_finish_local(s, ui, script, args.workers, args.step_ms)
         report = ledger(s)
