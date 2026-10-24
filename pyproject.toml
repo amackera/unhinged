@@ -28,6 +28,7 @@ Benchmarks = "https://github.com/amackera/unhinged/blob/main/BENCHMARKS.md"
 dev = ["pytest>=8", "anyio>=4", "pydantic-ai-slim>=2.60,<3; python_version >= '3.11'"]
 agent = ["anthropic>=2"]
 pydantic-ai = ["pydantic-ai-slim>=2.60,<3; python_version >= '3.11'"]
+demo = ["rich>=13"]
 
 [build-system]
 requires = ["hatchling"]
