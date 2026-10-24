@@ -52,7 +52,7 @@ thousands of tasks, workers killed at random, the disk deleted and restored
 from a Litestream replica, and a Linux VM crashed mid-run to count lost
 commits. It ends with a ledger showing every task completed exactly once.
 
-![the gauntlet](examples/gauntlet/gauntlet.gif)
+![the gauntlet](https://raw.githubusercontent.com/amackera/unhinged/main/examples/gauntlet/gauntlet.gif)
 
 `examples/release/` is a release checklist that survives Ctrl-C and waits
 for approval. `examples/pipeline/` is a resumable batch job.
